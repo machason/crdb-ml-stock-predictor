@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-import pickle 
-
+import pickle
 # ----------------------
 # Paths to model files
 # ----------------------
@@ -53,38 +52,43 @@ with col2:
     low_price = st.number_input("Low Price (TZS)", min_value=0.01, value=495.0, step=0.01, format="%.2f")
     close_price = st.number_input("Close Price (TZS)", min_value=0.01, value=505.0, step=0.01, format="%.2f")
 
+# Optional: allow user to input today's volume or keep default 0
+volume = st.number_input("Volume (optional, default 0)", min_value=0.0, value=0.0, step=1.0, format="%.0f")
+
 predict_button = st.button("🔮 Predict 5-Day Return", type="primary")
 
 # ----------------------
 # Safe feature engineering function
 # ----------------------
-def create_features(open_p, high_p, low_p, close_p):
+def create_features(open_p, high_p, low_p, close_p, volume=0.0):
     """
     Computes features safely – prevents division by zero and ensures proper shape for model.
+    Includes Volume placeholder for scaler compatibility.
     """
     # Ensure inputs are floats
     open_p = float(open_p)
     high_p = float(high_p)
     low_p  = float(low_p)
     close_p = float(close_p)
+    volume = float(volume)
 
     # Safe calculations
     high_low_pct = ((high_p - low_p) / low_p * 100) if low_p != 0 else 0.0
     open_close_pct = ((close_p - open_p) / open_p * 100) if open_p != 0 else 0.0
     daily_return = open_close_pct          # same as OC_PCT in training
-    vol_10 = abs(daily_return)            # fallback for rolling volatility
-    vol_20 = abs(daily_return)            # fallback for rolling volatility
-    ret_1 = daily_return                  # single-day return proxy
+    vol_10 = abs(daily_return)             # fallback for rolling volatility
+    vol_20 = abs(daily_return)             # fallback for rolling volatility
+    ret_1 = daily_return                   # single-day return proxy
 
-    # Return as 2D array for scaler/model
-    return np.array([[high_low_pct, open_close_pct, ret_1, vol_10, vol_20]])
+    # Return features in the same order as training
+    return np.array([[high_low_pct, open_close_pct, volume, ret_1, vol_10, vol_20]])
 
 # ----------------------
 # Prediction logic
 # ----------------------
 if predict_button:
     try:
-        features = create_features(open_price, high_price, low_price, close_price)
+        features = create_features(open_price, high_price, low_price, close_price, volume)
         features_scaled = scaler.transform(features)
         predicted_return = model.predict(features_scaled)[0]
 
