@@ -1,10 +1,10 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import joblib  
-import pickle
+import joblib
+import pickle 
+
 # ----------------------
 # Paths to model files
 # ----------------------
@@ -13,55 +13,96 @@ MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
 SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
 
 # ----------------------
-# Load models 
+# Load models (cached for performance)
 # ----------------------
-@st.cache_data  
+@st.cache_resource
 def load_model():
     try:
         model = joblib.load(MODEL_PATH)
         scaler = joblib.load(SCALER_PATH)
         return model, scaler
     except FileNotFoundError:
-        st.error("Model or scaler file not found. Make sure model.pkl and scaler.pkl are in the repo.")
+        st.error("Model or scaler file not found. Make sure model.pkl and scaler.pkl are in the repository root.")
         st.stop()
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.error(f"Error loading model: {str(e)}")
         st.stop()
 
 model, scaler = load_model()
 
 # ----------------------
-# App title
+# App title and description
 # ----------------------
 st.title("CRDB Stock 5-Day Return Predictor")
+st.markdown(
+    "Enter today's market data to predict the expected **5-day forward return** for CRDB Bank stock."
+)
 
 # ----------------------
-# User inputs
+# User inputs (with safe minimum values)
 # ----------------------
-st.subheader("Enter today's stock data:")
+st.subheader("Enter Today's Stock Data")
 
-open_price = st.number_input("Open Price", min_value=0.0, step=0.01)
-high_price = st.number_input("High Price", min_value=0.0, step=0.01)
-low_price = st.number_input("Low Price", min_value=0.0, step=0.01)
-close_price = st.number_input("Close Price", min_value=0.0, step=0.01)
+col1, col2 = st.columns(2)
+
+with col1:
+    open_price = st.number_input("Open Price (TZS)", min_value=0.01, value=500.0, step=0.01, format="%.2f")
+    high_price = st.number_input("High Price (TZS)", min_value=0.01, value=510.0, step=0.01, format="%.2f")
+
+with col2:
+    low_price = st.number_input("Low Price (TZS)", min_value=0.01, value=495.0, step=0.01, format="%.2f")
+    close_price = st.number_input("Close Price (TZS)", min_value=0.01, value=505.0, step=0.01, format="%.2f")
+
+predict_button = st.button("🔮 Predict 5-Day Return", type="primary")
 
 # ----------------------
-# Feature Engineering
+# Safe feature engineering function
 # ----------------------
 def create_features(open_p, high_p, low_p, close_p):
-    high_low_pct = (high_p - low_p) / low_p * 100
-    open_close_pct = (close_p - open_p) / open_p * 100
-    daily_return = (close_p - open_p) / open_p * 100
+    """
+    Computes features safely – prevents division by zero.
+    """
+    if low_p <= 0 or open_p <= 0:
+        raise ValueError("Low Price and Open Price must be greater than zero.")
 
-    vol_10 = 0
-    vol_20 = 0
+    high_low_pct = ((high_p - low_p) / low_p) * 100
+    open_close_pct = ((close_p - open_p) / open_p) * 100
+    daily_return = ((close_p - open_p) / open_p) * 100   # same as OC_PCT in this live case
+
+    # For live prediction we can't compute real rolling volatility → use proxies or zeros
+    # Here we use a simple proxy based on daily movement magnitude
+    vol_proxy = abs(daily_return)  # reasonable fallback
+    vol_10 = vol_proxy
+    vol_20 = vol_proxy
+
     return np.array([[high_low_pct, open_close_pct, daily_return, vol_10, vol_20]])
 
-features = create_features(open_price, high_price, low_price, close_price)
-features_scaled = scaler.transform(features)
+# ----------------------
+# Prediction logic
+# ----------------------
+if predict_button:
+    try:
+        features = create_features(open_price, high_price, low_price, close_price)
+        features_scaled = scaler.transform(features)
+        predicted_return = model.predict(features_scaled)[0]
 
-# ----------------------
-# Prediction
-# ----------------------
-predicted_return = model.predict(features_scaled)[0]
-st.subheader(f"Predicted 5-day return: {predicted_return:.2f}%")
+        # Display result
+        st.subheader(f"Predicted 5-Day Return: **{predicted_return * 100:.2f}%**")
+
+        # Interpretation
+        if predicted_return > 0.005:
+            st.success("📈 The model expects a **positive** price movement over the next 5 days.")
+        elif predicted_return < -0.005:
+            st.warning("📉 The model expects a **negative** price movement over the next 5 days.")
+        else:
+            st.info("The model predicts **neutral** movement (close to 0%).")
+
+    except ValueError as ve:
+        st.error(str(ve))
+    except Exception as e:
+        st.error(f"Prediction failed: {str(e)}\n\nPlease check your input values.")
+
+# Footer note
+st.markdown("---")
+st.caption("Note: Volatility features (VOL_10, VOL_20) are approximated from today's data only, "
+           "as historical sequence is not available in live prediction.")
