@@ -60,22 +60,24 @@ predict_button = st.button("🔮 Predict 5-Day Return", type="primary")
 # ----------------------
 def create_features(open_p, high_p, low_p, close_p):
     """
-    Computes features safely – prevents division by zero.
+    Computes features safely – prevents division by zero and ensures proper shape for model.
     """
-    if low_p <= 0 or open_p <= 0:
-        raise ValueError("Low Price and Open Price must be greater than zero.")
+    # Ensure inputs are floats
+    open_p = float(open_p)
+    high_p = float(high_p)
+    low_p  = float(low_p)
+    close_p = float(close_p)
 
-    high_low_pct = ((high_p - low_p) / low_p) * 100
-    open_close_pct = ((close_p - open_p) / open_p) * 100
-    daily_return = ((close_p - open_p) / open_p) * 100   # same as OC_PCT in this live case
+    # Safe calculations
+    high_low_pct = ((high_p - low_p) / low_p * 100) if low_p != 0 else 0.0
+    open_close_pct = ((close_p - open_p) / open_p * 100) if open_p != 0 else 0.0
+    daily_return = open_close_pct          # same as OC_PCT in training
+    vol_10 = abs(daily_return)            # fallback for rolling volatility
+    vol_20 = abs(daily_return)            # fallback for rolling volatility
+    ret_1 = daily_return                  # single-day return proxy
 
-    # For live prediction we can't compute real rolling volatility → use proxies or zeros
-    # Here we use a simple proxy based on daily movement magnitude
-    vol_proxy = abs(daily_return)  # reasonable fallback
-    vol_10 = vol_proxy
-    vol_20 = vol_proxy
-
-    return np.array([[high_low_pct, open_close_pct, daily_return, vol_10, vol_20]])
+    # Return as 2D array for scaler/model
+    return np.array([[high_low_pct, open_close_pct, ret_1, vol_10, vol_20]])
 
 # ----------------------
 # Prediction logic
